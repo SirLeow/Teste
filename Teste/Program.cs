@@ -6,6 +6,7 @@ using Google.Apis.Util.Store;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net;
 using System.Threading;
 
 namespace DriveQuickstart
@@ -14,29 +15,14 @@ namespace DriveQuickstart
     {
         /* Global instance of the scopes required by this quickstart.
          If modifying these scopes, delete your previously saved token.json/ folder. */
-        static string[] Scopes = { DriveService.Scope.DriveReadonly };
+        static string[] Scopes = { DriveService.ScopeConstants.Drive };
         static string ApplicationName = "Drive API .NET Quickstart";
 
         static void Main(string[] args)
         {
             try
             {
-                UserCredential credential;
-                // Load client secrets.
-                using (var stream =
-                       new FileStream("credentials.json", FileMode.Open, FileAccess.Read))
-                {
-                    /* The file token.json stores the user's access and refresh tokens, and is created
-                     automatically when the authorization flow completes for the first time. */
-                    string credPath = "token.json";
-                    credential = GoogleWebAuthorizationBroker.AuthorizeAsync(
-                        GoogleClientSecrets.FromStream(stream).Secrets,
-                        Scopes,
-                        "user",
-                        CancellationToken.None,
-                        new FileDataStore(credPath, true)).Result;
-                    Console.WriteLine("Credential file saved to: " + credPath);
-                }
+                var credential = createCredential();
 
                 // Create Drive API service.
                 var service = new DriveService(new BaseClientService.Initializer
@@ -45,8 +31,11 @@ namespace DriveQuickstart
                     ApplicationName = ApplicationName
                 });
 
-                CreateFileAsync(service);
-                ListDrive(service);
+                DownloadFile(service);
+                //ListDrive(service);
+                //UploadFile(service);
+
+                //CreateFolder(service);
             }
             catch (FileNotFoundException e)
             {
@@ -60,7 +49,7 @@ namespace DriveQuickstart
             // Define parameters of request.                               
             var listRequest = service.Files.List();
             listRequest.Fields = "*";
-            listRequest.Q = "mimeType = 'application/pdf'";
+            listRequest.Q = "mimeType = 'text/plain'";
             // List files.
             IList<Google.Apis.Drive.v3.Data.File> files = listRequest.Execute()
                 .Files;
@@ -73,38 +62,36 @@ namespace DriveQuickstart
             }
             foreach (var file in files)
             {
-
                 Console.WriteLine($"{file.Name} ({file.Id}) {file.MimeType}");
             }
         }
 
-        static async void CreateFileAsync(DriveService service)
+        static void UploadFile(DriveService service)
         {
             try
             {
-                using var uploadStream = File.OpenRead("detran_pa.pdf");
-
-                Google.Apis.Drive.v3.Data.File newFile = new Google.Apis.Drive.v3.Data.File
+                var newFile = new Google.Apis.Drive.v3.Data.File
                 {
-                    Name = "detrana.pdf"
+                    Name = "detran_pa.pdf",
                 };
 
-                FilesResource.CreateMediaUpload createRequest = service.Files.Create(
-                    newFile, uploadStream, "application/pdf");
 
-                // Add handlers which will be notified on progress changes and upload completion.
-                // Notification of progress changed will be invoked when the upload was started,
-                // on each upload chunk, and on success or failure.
-                createRequest.ProgressChanged += Upload_ProgressChanged;
-                createRequest.ResponseReceived += Upload_ResponseReceived;
+                using (var fsSource = new FileStream("detran_pa.pdf", FileMode.Open, FileAccess.Read))
+                {
+                    var request = service.Files.Create(newFile, fsSource, "application/pdf");
+                    request.Fields = "*";
 
-                await createRequest.UploadAsync();
-                //var t = createRequest.;
-                static void Upload_ProgressChanged(IUploadProgress progress) =>
-                    Console.WriteLine(progress.Status + " " + progress.BytesSent);
+                    var results = request.Upload();
 
-                static void Upload_ResponseReceived(Google.Apis.Drive.v3.Data.File file) =>
-                    Console.WriteLine(file.Name + " was uploaded successfully");
+                    if(results.Status == UploadStatus.Failed)
+                    {
+                        Console.WriteLine($"Error uploading file : {results.Exception.Message}");
+                    }else if(results.Status == UploadStatus.Completed)
+                    {
+                        Console.WriteLine("Upload Completed");
+                    }
+
+                }
 
             }catch(Exception e)
             {
@@ -112,5 +99,59 @@ namespace DriveQuickstart
             }
 
         }
+
+        static void CreateFolder(DriveService service, string folderName)
+        {
+            var folder = new Google.Apis.Drive.v3.Data.File()
+            {
+                Name = folderName,
+                MimeType = "application/vnd.google-apps.folder"
+            };
+
+            var request = service.Files.Create(folder);
+            var file = request.Execute();
+            //Console.WriteLine($"Folder id - {file.Id} \nFolder name - {folder.Name}");
+        }
+
+        static void DownloadFile(DriveService service)
+        {
+            var list = service.Files.List();
+            list.Q = "mimeType = 'application/pdf'";
+
+            var fileList = list.Execute();
+
+            if(fileList.Files.Count != 0)
+            {
+                var request = service.Files.Get(fileList.Files.First().Id);
+
+                using (var output = new FileStream(@"C:\Users\tblim\source\repos\Teste\Teste\bin\Debug\net6.0\teste.pdf", FileMode.Create, FileAccess.Write))
+                {
+                    request.Download(output);
+                }
+            }
+        }
+
+        static UserCredential createCredential()
+        {
+            UserCredential credential;
+            // Load client secrets.
+            using (var stream =
+                   new FileStream("credentials.json", FileMode.Open, FileAccess.Read))
+            {
+                /* The file token.json stores the user's access and refresh tokens, and is created
+                 automatically when the authorization flow completes for the first time. */
+                string credPath = "token.json";
+                credential = GoogleWebAuthorizationBroker.AuthorizeAsync(
+                    GoogleClientSecrets.FromStream(stream).Secrets,
+                    Scopes,
+                    "user",
+                    CancellationToken.None,
+                    new FileDataStore(credPath, true)).Result;
+                Console.WriteLine("Credential file saved to: " + credPath);
+            }
+
+            return credential;
+        }
+
     }
 }
